@@ -176,7 +176,6 @@ float UVaRestJsonValue::AsNumber() const
 		ErrorMessage(TEXT("Number"));
 		return 0.f;
 	}
-
 	return JsonVal->AsNumber();
 }
 
@@ -187,7 +186,11 @@ FString UVaRestJsonValue::AsString() const
 		ErrorMessage(TEXT("String"));
 		return FString();
 	}
-
+	switch (JsonVal->Type)
+	{
+	case EJson::Number: // keep full double precision, FJsonValue::AsString truncates to %.7f
+		return FString::Printf(TEXT("%.17f"), JsonVal->AsNumber());
+	}
 	return JsonVal->AsString();
 }
 

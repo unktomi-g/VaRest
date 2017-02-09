@@ -156,6 +156,11 @@ void UVaRestJsonObject::SetField(const FString& FieldName, UVaRestJsonValue* Jso
 
 float UVaRestJsonObject::GetNumberField(const FString& FieldName) const
 {
+    return GetDoubleField(FieldName);
+}
+
+double UVaRestJsonObject::GetDoubleField(const FString& FieldName) const
+{
 	if (!JsonObj.IsValid() || !JsonObj->HasTypedField<EJson::Number>(FieldName))
 	{
 		UE_LOG(LogVaRest, Warning, TEXT("No field with name %s of type Number"), *FieldName);
@@ -166,6 +171,11 @@ float UVaRestJsonObject::GetNumberField(const FString& FieldName) const
 }
 
 void UVaRestJsonObject::SetNumberField(const FString& FieldName, float Number)
+{
+	SetDoubleField(FieldName, Number);
+}
+
+void UVaRestJsonObject::SetDoubleField(const FString& FieldName, double Number)
 {
 	if (!JsonObj.IsValid() || FieldName.IsEmpty())
 	{
@@ -217,7 +227,7 @@ void UVaRestJsonObject::SetBoolField(const FString& FieldName, bool InValue)
 	JsonObj->SetBoolField(FieldName, InValue);
 }
 
-TArray<UVaRestJsonValue*> UVaRestJsonObject::GetArrayField(const FString& FieldName) const
+TArray<UVaRestJsonValue*> UVaRestJsonObject::GetArrayField(const FString& FieldName)
 {
 	if (!JsonObj->HasTypedField<EJson::Array>(FieldName))
 	{
@@ -330,15 +340,21 @@ void UVaRestJsonObject::SetObjectField(const FString& FieldName, UVaRestJsonObje
 	{
 		return;
 	}
-
-	JsonObj->SetObjectField(FieldName, JsonObject->GetRootObject());
+	if (JsonObject == nullptr)
+	{
+		JsonObj->RemoveField(FieldName);
+	}
+	else
+	{
+		JsonObj->SetObjectField(FieldName, JsonObject->GetRootObject());
+	}
 }
 
 
 //////////////////////////////////////////////////////////////////////////
 // Array fields helpers (uniform arrays)
 
-TArray<float> UVaRestJsonObject::GetNumberArrayField(const FString& FieldName) const
+TArray<float> UVaRestJsonObject::GetNumberArrayField(const FString& FieldName)
 {
 	if (!JsonObj->HasTypedField<EJson::Array>(FieldName))
 	{
@@ -366,6 +382,35 @@ TArray<float> UVaRestJsonObject::GetNumberArrayField(const FString& FieldName) c
 	return NumberArray;
 }
 
+TArray<double> UVaRestJsonObject::GetDoubleArrayField(const FString& FieldName)
+{
+	if (!JsonObj->HasTypedField<EJson::Array>(FieldName))
+	{
+		UE_LOG(LogVaRest, Warning, TEXT("No field with name %s of type Array"), *FieldName);
+	}
+
+	TArray<double> NumberArray;
+	if (!JsonObj.IsValid() || FieldName.IsEmpty())
+	{
+		return NumberArray;
+	}
+
+	TArray<TSharedPtr<FJsonValue> > JsonArrayValues = JsonObj->GetArrayField(FieldName);
+	for (TArray<TSharedPtr<FJsonValue> >::TConstIterator It(JsonArrayValues); It; ++It)
+	{
+		auto Value = (*It).Get();
+		if (Value->Type != EJson::Number)
+		{
+			UE_LOG(LogVaRest, Error, TEXT("Not Number element in array with field name %s"), *FieldName);
+		}
+		
+		NumberArray.Add((*It)->AsNumber());
+	}
+
+	return NumberArray;
+}
+
+
 void UVaRestJsonObject::SetNumberArrayField(const FString& FieldName, const TArray<float>& NumberArray)
 {
 	if (!JsonObj.IsValid() || FieldName.IsEmpty())
@@ -383,7 +428,25 @@ void UVaRestJsonObject::SetNumberArrayField(const FString& FieldName, const TArr
 	JsonObj->SetArrayField(FieldName, EntriesArray);
 }
 
-TArray<FString> UVaRestJsonObject::GetStringArrayField(const FString& FieldName) const
+void UVaRestJsonObject::SetDoubleArrayField(const FString& FieldName, const TArray<double>& NumberArray)
+{
+	if (!JsonObj.IsValid() || FieldName.IsEmpty())
+	{
+		return;
+	}
+
+	TArray< TSharedPtr<FJsonValue> > EntriesArray;
+
+	for (auto Number : NumberArray)
+	{
+		EntriesArray.Add(MakeShareable(new FJsonValueNumber(Number)));
+	}
+
+	JsonObj->SetArrayField(FieldName, EntriesArray);
+}
+
+
+TArray<FString> UVaRestJsonObject::GetStringArrayField(const FString& FieldName)
 {
 	if (!JsonObj->HasTypedField<EJson::Array>(FieldName))
 	{
@@ -427,7 +490,7 @@ void UVaRestJsonObject::SetStringArrayField(const FString& FieldName, const TArr
 	JsonObj->SetArrayField(FieldName, EntriesArray);
 }
 
-TArray<bool> UVaRestJsonObject::GetBoolArrayField(const FString& FieldName) const
+TArray<bool> UVaRestJsonObject::GetBoolArrayField(const FString& FieldName)
 {
 	if (!JsonObj->HasTypedField<EJson::Array>(FieldName))
 	{
@@ -471,7 +534,7 @@ void UVaRestJsonObject::SetBoolArrayField(const FString& FieldName, const TArray
 	JsonObj->SetArrayField(FieldName, EntriesArray);
 }
 
-TArray<UVaRestJsonObject*> UVaRestJsonObject::GetObjectArrayField(const FString& FieldName) const
+TArray<UVaRestJsonObject*> UVaRestJsonObject::GetObjectArrayField(const FString& FieldName)
 {
 	if (!JsonObj->HasTypedField<EJson::Array>(FieldName))
 	{

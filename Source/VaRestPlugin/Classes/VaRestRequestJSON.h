@@ -39,10 +39,8 @@ public:
 	{
 	}
   
-	virtual void UpdateOperation(FLatentResponse& Response) override
-	{
-		Response.FinishAndTriggerIf(Called, ExecutionFunction, OutputLink, CallbackTarget);
-	}
+	virtual void UpdateOperation(FLatentResponse& Response) override;
+	
 
 	virtual void NotifyObjectDestroyed()
 	{
@@ -114,10 +112,6 @@ public:
 	/** Set content of the request for binary post data */
 	UFUNCTION(BlueprintCallable, Category = "VaRest|Request")
 	void SetBinaryRequestContent(const TArray<uint8> &Content);
-
-	/** Set content of the request as a plain string */
-	UFUNCTION(BlueprintCallable, Category = "VaRest|Request")
-	void SetStringRequestContent(const FString &Content);
 
 	/** Sets optional header info */
 	UFUNCTION(BlueprintCallable, Category = "VaRest|Request")
@@ -191,7 +185,6 @@ public:
 	//////////////////////////////////////////////////////////////////////////
 	// URL processing
 
-public:
 	/** Open URL with current setup */
 	UFUNCTION(BlueprintCallable, Category = "VaRest|Request")
 	virtual void ProcessURL(const FString& Url = TEXT("http://alyamkin.com"));
@@ -200,7 +193,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "VaRest|Request", meta = (Latent, LatentInfo = "LatentInfo", HidePin = "WorldContextObject", DefaultToSelf = "WorldContextObject"))
 	virtual void ApplyURL(const FString& Url, UVaRestJsonObject *&Result, UObject* WorldContextObject, struct FLatentActionInfo LatentInfo);
 
-protected:
 	/** Apply current internal setup to request and process it */
 	void ProcessRequest();
 
@@ -265,6 +257,11 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VaRest|Response")
 	bool bIsValidJsonResponse;
 
+	FVaRestLatentAction<UVaRestJsonObject*>* GetContinueAction()
+	{
+		return ContinueAction;
+	}
+
 protected:
 	/** Latent action helper */
 	FVaRestLatentAction<UVaRestJsonObject*>* ContinueAction;
@@ -273,12 +270,11 @@ protected:
 	UPROPERTY()
 	UVaRestJsonObject* RequestJsonObj;
 
+	UPROPERTY()
 	TArray<uint8> RequestBytes;
-	FString BinaryContentType;
 
-	/** Used for special cases when used wants to have plain string data in request. 
-	 * Attn.! Content-type x-www-form-urlencoded only. */
-	FString StringRequestContent;
+	UPROPERTY()
+	FString BinaryContentType;
 
 	/** Response data stored as JSON */
 	UPROPERTY()

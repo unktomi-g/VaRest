@@ -5,10 +5,25 @@
 
 template <class T> void FVaRestLatentAction<T>::Cancel()
 {
-	UObject *Obj = Request.Get();
-	if (Obj != nullptr)
+	UVaRestRequestJSON* Obj = (UVaRestRequestJSON*)Request.Get();
+	if (Obj != nullptr && Obj->GetContinueAction() == this)
 	{
-		((UVaRestRequestJSON*)Obj)->Cancel();
+		UE_LOG(LogVaRest, Log, TEXT("Cancelling latent action for %s: %p"), *Obj->GetURL(),  this);
+		Request.Reset();
+		Obj->Cancel();
+	}
+}
+
+template <class T> void FVaRestLatentAction<T>::UpdateOperation(FLatentResponse& Response)
+{
+	if (Called)
+	{
+		Request.Reset();
+		Response.FinishAndTriggerIf(Called, ExecutionFunction, OutputLink, CallbackTarget);
+	}
+	else if (Request.Get() == nullptr)
+	{
+		Response.DoneIf(true);
 	}
 }
 
@@ -16,8 +31,6 @@ UVaRestRequestJSON::UVaRestRequestJSON(const class FObjectInitializer& PCIP)
   : Super(PCIP),
     BinaryContentType(TEXT("application/octet-stream"))
 {
-	ContinueAction = nullptr;
-
 	RequestVerb = ERequestVerb::GET;
 	RequestContentType = ERequestContentType::x_www_form_urlencoded_url;
 
@@ -57,19 +70,14 @@ void UVaRestRequestJSON::SetContentType(ERequestContentType ContentType)
 	RequestContentType = ContentType;
 }
 
-void UVaRestRequestJSON::SetBinaryContentType(const FString& ContentType)
+void UVaRestRequestJSON::SetBinaryContentType(const FString &ContentType)
 {
 	BinaryContentType = ContentType;
 }
 
-void UVaRestRequestJSON::SetBinaryRequestContent(const TArray<uint8>& Bytes)
+void UVaRestRequestJSON::SetBinaryRequestContent(const TArray<uint8> &Bytes)
 {
 	RequestBytes = Bytes;
-}
-
-void UVaRestRequestJSON::SetStringRequestContent(const FString& Content)
-{
-	StringRequestContent = Content;
 }
 
 void UVaRestRequestJSON::SetHeader(const FString& HeaderName, const FString& HeaderValue)
@@ -97,16 +105,15 @@ void UVaRestRequestJSON::ResetRequestData()
 	{
 		RequestJsonObj = NewObject<UVaRestJsonObject>();
 	}
-
-	// See issue #90
-	// HttpRequest = FHttpModule::Get().CreateRequest();
-
-	RequestBytes.Empty();
-	StringRequestContent.Empty();
+	///HttpRequest->CancelRequest();
+	HttpRequest->OnProcessRequestComplete().Unbind();
+	HttpRequest = FHttpModule::Get().CreateRequest();
 }
 
 void UVaRestRequestJSON::ResetResponseData()
 {
+	UE_LOG(LogVaRest, Log, TEXT("Reset Response data %s: %p"), *HttpRequest->GetURL(), ContinueAction);
+	ContinueAction = nullptr;
 	if (ResponseJsonObj != nullptr)
 	{
 		ResponseJsonObj->Reset();
@@ -124,8 +131,6 @@ void UVaRestRequestJSON::ResetResponseData()
 
 void UVaRestRequestJSON::Cancel()
 {
-	ContinueAction = nullptr;
-
 	ResetResponseData();
 }
 
@@ -201,41 +206,34 @@ TArray<FString> UVaRestRequestJSON::GetAllResponseHeaders()
 
 void UVaRestRequestJSON::ProcessURL(const FString& Url)
 {
-	// Be sure to trim URL because it can break links on iOS
-	FString TrimmedUrl = Url;
-	TrimmedUrl.Trim();
-	TrimmedUrl.TrimTrailing();
-
-	HttpRequest->SetURL(TrimmedUrl);
-
+	HttpRequest->SetURL(Url);
 	ProcessRequest();
 }
 
-void UVaRestRequestJSON::ApplyURL(const FString& Url, UVaRestJsonObject *&Result, UObject* WorldContextObject, FLatentActionInfo LatentInfo)
+void UVaRestRequestJSON::ApplyURL(const FString& Url, UVaRestJsonObject*& Result, UObject* WorldContextObject, FLatentActionInfo LatentInfo)
 {
-	// Be sure to trim URL because it can break links on iOS
-	FString TrimmedUrl = Url;
-	TrimmedUrl.Trim();
-	TrimmedUrl.TrimTrailing();
-
-	HttpRequest->SetURL(TrimmedUrl);
-
 	// Prepare latent action
 	if (UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject))
 	{
 		FLatentActionManager& LatentActionManager = World->GetLatentActionManager();
-		FVaRestLatentAction<UVaRestJsonObject*> *Kont = LatentActionManager.FindExistingAction<FVaRestLatentAction<UVaRestJsonObject*>>(LatentInfo.CallbackTarget, LatentInfo.UUID);
-
+		FVaRestLatentAction<UVaRestJsonObject*>* Kont = LatentActionManager.FindExistingAction<FVaRestLatentAction<UVaRestJsonObject*>>(LatentInfo.CallbackTarget, LatentInfo.UUID);
+		ContinueAction = new FVaRestLatentAction<UVaRestJsonObject*>(this, Result, LatentInfo);
 		if (Kont != nullptr)
 		{
 			Kont->Cancel();
-			LatentActionManager.RemoveActionsForObject(LatentInfo.CallbackTarget);
+			//LatentActionManager.RemoveActionsForObject(LatentInfo.CallbackTarget);
+			UE_LOG(LogVaRest, Log, TEXT("Removed existing latent action for %s: %p"), *Url, Kont);
 		}
-
-		LatentActionManager.AddNewAction(LatentInfo.CallbackTarget, LatentInfo.UUID, ContinueAction = new FVaRestLatentAction<UVaRestJsonObject*>(this, Result, LatentInfo));
+		UE_LOG(LogVaRest, Log, TEXT("Adding latent action for %s: %p"), *Url, ContinueAction);
+		LatentActionManager.AddNewAction(LatentInfo.CallbackTarget, LatentInfo.UUID, ContinueAction);
+		HttpRequest->SetURL(Url);
+		ProcessRequest();
 	}
-
-	ProcessRequest();
+	else
+	{
+		UE_LOG(LogVaRest, Error, TEXT("No World Context %p"), WorldContextObject);
+	}
+	
 }
 
 void UVaRestRequestJSON::ProcessRequest()
@@ -295,13 +293,7 @@ void UVaRestRequestJSON::ProcessRequest()
 		// Apply params
 		HttpRequest->SetURL(HttpRequest->GetURL() + UrlParams);
 
-		// Add optional string content
-		if (!StringRequestContent.IsEmpty())
-		{
-			HttpRequest->SetContentAsString(StringRequestContent);
-		}
-
-		UE_LOG(LogVaRest, Log, TEXT("Request (urlencoded): %s %s %s"), *HttpRequest->GetVerb(), *HttpRequest->GetURL(), *UrlParams, *StringRequestContent);
+		UE_LOG(LogVaRest, Log, TEXT("Request (urlencoded): %s %s %s"), *HttpRequest->GetVerb(), *HttpRequest->GetURL(), *UrlParams);
 
 		break;
 	}
@@ -369,8 +361,7 @@ void UVaRestRequestJSON::ProcessRequest()
 	{
 		HttpRequest->SetHeader(It.Key(), It.Value());
 	}
-	
-	// Bind event
+		// Bind event
 	HttpRequest->OnProcessRequestComplete().BindUObject(this, &UVaRestRequestJSON::OnProcessRequestComplete);
 
 	// Execute the request
@@ -383,6 +374,9 @@ void UVaRestRequestJSON::ProcessRequest()
 
 void UVaRestRequestJSON::OnProcessRequestComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
 {
+	FString Url = Request->GetURL();
+	UE_LOG(LogVaRest, Log, TEXT("On process request complete %s: %p, this: %p"), *Url, Request.Get(), &this->HttpRequest.Get());
+	FVaRestLatentAction<UVaRestJsonObject*> *K = ContinueAction;
 	// Be sure that we have no data from previous response
 	ResetResponseData();
 
@@ -443,13 +437,10 @@ void UVaRestRequestJSON::OnProcessRequestComplete(FHttpRequestPtr Request, FHttp
 	// Broadcast the result event
 	OnRequestComplete.Broadcast(this);
 	OnStaticRequestComplete.Broadcast(this);
-
+	UE_LOG(LogVaRest, Log, TEXT("latent action for %s: %p"), *HttpRequest->GetURL(), K);
 	// Finish the latent action
-	if (ContinueAction)
+	if (K)
 	{
-          FVaRestLatentAction<UVaRestJsonObject*> *K = ContinueAction;
-          ContinueAction = nullptr;
-
           K->Call(ResponseJsonObj);
 	}
 }

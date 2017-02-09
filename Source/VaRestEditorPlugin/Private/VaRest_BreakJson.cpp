@@ -5,7 +5,6 @@
 #include "VaRest_BreakJson.h"
 
 #include "Runtime/Launch/Resources/Version.h"
-#include "EdGraphUtilities.h"
 
 #define LOCTEXT_NAMESPACE "VaRest_BreakJson"
 
